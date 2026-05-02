@@ -1,8 +1,10 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import TrackingMap from '../components/TrackingMap';
-import { getTrackingData } from '../services/apiService';
+import { getTrackingData, updateTripBudget, submitReview } from '../services/apiService';
 import './CustomerTrackingPage.css';
+
+const goHome = () => { window.location.href = '/'; };
 
 const CustomerTrackingPage = () => {
   const { trackingId } = useParams();
@@ -10,98 +12,150 @@ const CustomerTrackingPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(null);
 
-  useEffect(() => {
-    const fetchTripData = async () => {
-      try {
-        setLoading(true);
-        setError(null);
+  const [budgetInput, setBudgetInput] = useState('');
+  const [updatingBudget, setUpdatingBudget] = useState(false);
 
-        if (!trackingId) {
-          throw new Error('No tracking ID provided');
-        }
+  const [rating, setRating] = useState(5);
+  const [reviewText, setReviewText] = useState('');
+  const [submittingReview, setSubmittingReview] = useState(false);
+  const [reviewSuccess, setReviewSuccess] = useState(false);
+  const [uiMessage, setUiMessage] = useState(null);
 
-        const data = await getTrackingData(trackingId);
+  const fetchTripData = useCallback(async () => {
+    try {
+      setLoading(true);
+      setError(null);
 
-        if (!data || typeof data !== 'object') {
-          throw new Error('Invalid response from server');
-        }
+      const data = await getTrackingData(trackingId);
+      setTripData(data);
 
-        setTripData(data);
-      } catch (err) {
-        const errorMessage =
-          err.response?.data?.error ||
-          err.message ||
-          'Failed to load tracking data';
-
-        console.error('Tracking error:', err);
-        setError(errorMessage);
-        setTripData(null);
-      } finally {
-        setLoading(false);
+      if (data?.budgetAmount) {
+        setBudgetInput(data.budgetAmount);
       }
-    };
-
-    fetchTripData();
+    } catch (err) {
+      setError('Failed to load tracking data');
+    } finally {
+      setLoading(false);
+    }
   }, [trackingId]);
 
-  if (loading) {
-    return (
-      <div className="page-loading">
-        <div className="loading-spinner"></div>
-        <p>Loading tracking information...</p>
-      </div>
-    );
-  }
+  useEffect(() => {
+    fetchTripData();
+    const interval = setInterval(fetchTripData, 5000);
+    return () => clearInterval(interval);
+  }, [fetchTripData]);
 
-  if (error) {
-    return (
-      <div className="page-error">
-        <h2>⚠️ Error Loading Tracking Data</h2>
-        <p>{error}</p>
-        <div className="error-tips">
-          <p><strong>Troubleshooting:</strong></p>
-          <ul>
-            <li>Verify the tracking ID in the URL is correct</li>
-            <li>Make sure the trip has been created via the admin panel</li>
-            <li>Check that the backend server is running on port 5000</li>
-          </ul>
-        </div>
-      </div>
-    );
-  }
+  if (loading && !tripData) return <p>Loading...</p>;
+  if (error) return <p>{error}</p>;
 
-  if (!tripData) {
-    return (
-      <div className="page-error">
-        <h2>No Data Available</h2>
-        <p>Could not find tracking information</p>
-      </div>
-    );
-  }
-
-  const customerName = tripData.customerName || 'Unknown Customer';
+  const customerName = tripData.customerName || 'Customer';
   const driverName = tripData.driverName || 'Driver';
-  const status = tripData.status || 'unknown';
+  const status = tripData.status;
+
+  const handleUpdateBudget = async () => {
+    try {
+      setUpdatingBudget(true);
+      await updateTripBudget(tripData.tripId, budgetInput);
+      await fetchTripData();
+    } finally {
+      setUpdatingBudget(false);
+    }
+  };
+
+  const handleReviewSubmit = async () => {
+    try {
+      setSubmittingReview(true);
+      await submitReview(tripData.tripId, {
+        rating,
+        review_text: reviewText,
+      });
+      setReviewSuccess(true);
+      await fetchTripData();
+    } finally {
+      setSubmittingReview(false);
+    }
+  };
 
   return (
-    <div className="customer-tracking-page">
-      <div className="page-header">
-        <h1>🚚 Track Your Delivery</h1>
-      </div>
+    <div className="customer-tracking-page pb-20">
 
-      <TrackingMap
-        trackingId={trackingId}
-        customerName={customerName}
-        driverName={driverName}
-        tripData={tripData}
-      />
+      {status === 'completed' ? (
+        <div className="max-w-xl mx-auto p-6 bg-white rounded-2xl shadow-lg mt-8 text-center">
 
-      <div className="trip-status">
-        <h3>Delivery Status</h3>
-        <div className={`status-badge status-${status.toLowerCase()}`}>
-          {status.toUpperCase()}
+          <div className="text-6xl mb-4">🎉</div>
+          <h2 className="text-2xl font-black mb-2">Order Completed!</h2>
+          <p className="mb-6">Your delivery was successful.</p>
+
+          {!tripData.hasReview && !reviewSuccess ? (
+
+            <div className="bg-gray-100 p-4 rounded-xl">
+
+              <h3 className="mb-3 font-bold">Rate Driver ({driverName})</h3>
+
+              <div className="flex justify-center gap-2 mb-4">
+                {[1,2,3,4,5].map(star => (
+                  <button key={star} onClick={() => setRating(star)}>
+                    {rating >= star ? '⭐' : '☆'}
+                  </button>
+                ))}
+              </div>
+
+              <textarea
+                value={reviewText}
+                onChange={(e)=>setReviewText(e.target.value)}
+                className="w-full p-2 mb-3"
+                placeholder="Write review..."
+              />
+
+              <button
+                onClick={handleReviewSubmit}
+                className="w-full bg-blue-600 text-white py-2 rounded"
+              >
+                Submit Review
+              </button>
+
+              {/* 🔥 SKIP BUTTON */}
+              <button
+                onClick={() => (goHome())}
+                className="w-full mt-3 bg-black text-white py-2 rounded"
+              >
+                Skip / Go Home
+              </button>
+
+            </div>
+
+          ) : (
+
+            <div>
+              <div className="bg-green-100 p-4 rounded mb-4">
+                Thank you for your feedback ⭐ {tripData.rating || rating}/5
+              </div>
+
+              {/* 🔥 FINAL HOME BUTTON */}
+              <button
+                onClick={() => (goHome())}
+                className="w-full bg-blue-600 text-white py-3 rounded"
+              >
+                Go to Home
+              </button>
+            </div>
+
+          )}
+
         </div>
-      </div>
+
+      ) : (
+
+        <TrackingMap
+          trackingId={trackingId}
+          customerName={customerName}
+          driverName={driverName}
+          tripData={tripData}
+          onRefreshTrip={fetchTripData}
+        />
+
+      )}
+
     </div>
   );
 };

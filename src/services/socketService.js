@@ -25,13 +25,20 @@ export const initSocket = () => {
 export const getSocket = () => initSocket();
 
 export const joinTrip = (trackingId) => {
+  if (!trackingId) return;
   const s = initSocket();
   s.emit('join-trip-customer', trackingId);
 };
 
-export const joinDriverTrip = (trackingId) => {
+export const joinDriverTrip = (trackingId, driverId) => {
+  if (!trackingId) return;
   const s = initSocket();
-  s.emit('join-trip', { trackingId, role: 'driver' });
+  s.emit('join-trip', { trackingId, driverId, role: 'driver' });
+};
+
+export const joinAdminLiveTracking = () => {
+  const s = initSocket();
+  s.emit('join-admin-live-tracking');
 };
 
 export const onLocationUpdate = (callback) => {
@@ -66,13 +73,18 @@ export const onRoomJoined = (callback) => {
   return () => s.off('room-joined-customer', callback);
 };
 
-export const emitRealLocation = (latitude, longitude, trackingId, tripId) => {
+export const emitRealLocation = (latitude, longitude, trackingId, tripId, driverId = null) => {
+  if (!trackingId || !tripId) return;
+
   const s = initSocket();
+
   s.emit('update-location', {
     latitude,
     longitude,
     trackingId,
     tripId,
+    driverId,
+    tripStatus: 'in-progress',
     timestamp: new Date().toISOString(),
   });
 };
